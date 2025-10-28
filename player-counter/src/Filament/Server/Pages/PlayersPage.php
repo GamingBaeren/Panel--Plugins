@@ -8,6 +8,7 @@ use App\Traits\Filament\BlockAccessInConflict;
 use Boy132\PlayerCounter\Filament\Server\Widgets\ServerPlayerWidget;
 use Boy132\PlayerCounter\Models\GameQuery;
 use Boy132\PlayerCounter\PlayerCounterPlugin;
+use Carbon\CarbonInterval;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
@@ -71,19 +72,23 @@ class PlayersPage extends Page implements HasTable
         /** @var Server $server */
         $server = Filament::getTenant();
 
-        $fileRepository = (new DaemonFileRepository())->setServer($server);
+        $isMinecraft = PlayerCounterPlugin::getGameQuery($server)->first()?->query_type === 'minecraft';
 
         $whitelist = [];
         $ops = [];
 
-        try {
-            $whitelist = json_decode($fileRepository->getContent('whitelist.json'), true, 512, JSON_THROW_ON_ERROR);
-            $whitelist = array_unique(array_map(fn ($data) => $data['name'], $whitelist));
+        if ($isMinecraft) {
+            $fileRepository = (new DaemonFileRepository())->setServer($server);
 
-            $ops = json_decode($fileRepository->getContent('ops.json'), true, 512, JSON_THROW_ON_ERROR);
-            $ops = array_unique(array_map(fn ($data) => $data['name'], $ops));
-        } catch (Exception $exception) {
-            report($exception);
+            try {
+                $whitelist = json_decode($fileRepository->getContent('whitelist.json'), true, 512, JSON_THROW_ON_ERROR);
+                $whitelist = array_unique(array_map(fn ($data) => $data['name'], $whitelist));
+
+                $ops = json_decode($fileRepository->getContent('ops.json'), true, 512, JSON_THROW_ON_ERROR);
+                $ops = array_unique(array_map(fn ($data) => $data['name'], $ops));
+            } catch (Exception $exception) {
+                report($exception);
+            }
         }
 
         return $table
@@ -116,23 +121,31 @@ class PlayersPage extends Page implements HasTable
             ->columns([
                 Split::make([
                     ImageColumn::make('avatar')
-                        ->visible(fn () => PlayerCounterPlugin::getGameQuery($server)->first()?->query_type === 'minecraft')
-                        ->state(fn (array $record) => 'https://cravatar.eu/helmhead/' . $record['player'] . '/256.png')
+                        ->visible(fn () => $isMinecraft)
+                        ->state(fn (array $record) => 'https://cravatar.eu/helmhead/' . $record['name'] . '/256.png')
                         ->grow(false),
-                    TextColumn::make('player')
+                    TextColumn::make('name')
                         ->searchable(),
                     TextColumn::make('is_whitelisted')
+                        ->visible(fn () => $isMinecraft)
                         ->badge()
                         ->grow(false)
-                        ->state(fn (array $record) => in_array($record['player'], $whitelist) ? trans('player-counter::query.whitelisted') : null),
+                        ->state(fn (array $record) => in_array($record['name'], $whitelist) ? trans('player-counter::query.whitelisted') : null),
                     TextColumn::make('is_op')
+                        ->visible(fn () => $isMinecraft)
                         ->badge()
                         ->grow(false)
-                        ->state(fn (array $record) => in_array($record['player'], $ops) ? trans('player-counter::query.op') : null),
+                        ->state(fn (array $record) => in_array($record['name'], $ops) ? trans('player-counter::query.op') : null),
+                    TextColumn::make('time')
+                        ->hidden(fn () => $isMinecraft)
+                        ->badge()
+                        ->grow(false)
+                        ->formatStateUsing(fn ($state) => $state ? CarbonInterval::seconds($state)->cascade()->forHumans() : null),
                 ]),
             ])
             ->recordActions([
                 Action::make('kick')
+                    ->visible(fn () => $isMinecraft)
                     ->icon('tabler-door-exit')
                     ->color('danger')
                     ->action(function (array $record) {
@@ -140,11 +153,11 @@ class PlayersPage extends Page implements HasTable
                         $server = Filament::getTenant();
 
                         try {
-                            $server->send('kick ' . $record['player']);
+                            $server->send('kick ' . $record['name']);
 
                             Notification::make()
                                 ->title(trans('player-counter::query.notifications.player_kicked'))
-                                ->body($record['player'])
+                                ->body($record['name'])
                                 ->success()
                                 ->send();
 
@@ -160,21 +173,22 @@ class PlayersPage extends Page implements HasTable
                         }
                     }),
                 Action::make('whitelist')
-                    ->label(fn (array $record) => in_array($record['player'], $whitelist) ? trans('player-counter::query.remove_from_whitelist') : trans('player-counter::query.add_to_whitelist'))
-                    ->icon(fn (array $record) => in_array($record['player'], $whitelist) ? 'tabler-playlist-x' : 'tabler-playlist-add')
-                    ->color(fn (array $record) => in_array($record['player'], $whitelist) ? 'danger' : 'success')
+                    ->visible(fn () => $isMinecraft)
+                    ->label(fn (array $record) => in_array($record['name'], $whitelist) ? trans('player-counter::query.remove_from_whitelist') : trans('player-counter::query.add_to_whitelist'))
+                    ->icon(fn (array $record) => in_array($record['name'], $whitelist) ? 'tabler-playlist-x' : 'tabler-playlist-add')
+                    ->color(fn (array $record) => in_array($record['name'], $whitelist) ? 'danger' : 'success')
                     ->action(function (array $record) use ($whitelist) {
                         /** @var Server $server */
                         $server = Filament::getTenant();
 
                         try {
-                            $action = in_array($record['player'], $whitelist) ? 'remove' : 'add';
+                            $action = in_array($record['name'], $whitelist) ? 'remove' : 'add';
 
-                            $server->send('whitelist ' . $action . ' ' . $record['player']);
+                            $server->send('whitelist ' . $action . ' ' . $record['name']);
 
                             Notification::make()
                                 ->title(trans('player-counter::query.notifications.player_whitelist_' . $action))
-                                ->body($record['player'])
+                                ->body($record['name'])
                                 ->success()
                                 ->send();
 
@@ -190,21 +204,22 @@ class PlayersPage extends Page implements HasTable
                         }
                     }),
                 Action::make('op')
-                    ->label(fn (array $record) => in_array($record['player'], $ops) ? trans('player-counter::query.remove_from_ops') : trans('player-counter::query.add_to_ops'))
-                    ->icon(fn (array $record) => in_array($record['player'], $ops) ? 'tabler-shield-minus' : 'tabler-shield-plus')
-                    ->color(fn (array $record) => in_array($record['player'], $ops) ? 'warning' : 'success')
+                    ->visible(fn () => $isMinecraft)
+                    ->label(fn (array $record) => in_array($record['name'], $ops) ? trans('player-counter::query.remove_from_ops') : trans('player-counter::query.add_to_ops'))
+                    ->icon(fn (array $record) => in_array($record['name'], $ops) ? 'tabler-shield-minus' : 'tabler-shield-plus')
+                    ->color(fn (array $record) => in_array($record['name'], $ops) ? 'warning' : 'success')
                     ->action(function (array $record) use ($ops) {
                         /** @var Server $server */
                         $server = Filament::getTenant();
 
                         try {
-                            $action = in_array($record['player'], $ops) ? 'deop' : 'op';
+                            $action = in_array($record['name'], $ops) ? 'deop' : 'op';
 
-                            $server->send($action  . ' ' . $record['player']);
+                            $server->send($action  . ' ' . $record['name']);
 
                             Notification::make()
                                 ->title(trans('player-counter::query.notifications.player_' . $action))
-                                ->body($record['player'])
+                                ->body($record['name'])
                                 ->success()
                                 ->send();
 
