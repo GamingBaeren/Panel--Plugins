@@ -2,11 +2,10 @@
 
 namespace Boy132\PlayerCounter\Filament\Server\Pages;
 
-use App\Enums\ContainerStatus;
-use App\Enums\ServerState;
 use App\Models\Server;
 use App\Repositories\Daemon\DaemonFileRepository;
 use App\Traits\Filament\BlockAccessInConflict;
+use Boy132\PlayerCounter\Filament\Server\Widgets\ServerPlayerWidget;
 use Boy132\PlayerCounter\Models\GameQuery;
 use Boy132\PlayerCounter\PlayerCounterPlugin;
 use Exception;
@@ -117,6 +116,7 @@ class PlayersPage extends Page implements HasTable
             ->columns([
                 Split::make([
                     ImageColumn::make('avatar')
+                        ->visible(fn () => PlayerCounterPlugin::getGameQuery($server)->first()?->query_type === 'minecraft')
                         ->state(fn (array $record) => 'https://cravatar.eu/helmhead/' . $record['player'] . '/256.png')
                         ->grow(false),
                     TextColumn::make('player')
@@ -224,27 +224,21 @@ class PlayersPage extends Page implements HasTable
                 /** @var Server $server */
                 $server = Filament::getTenant();
 
-                /** @var ServerState|ContainerStatus $condition */
-                $condition = $server->condition();
-
-                if ($condition instanceof ContainerStatus && $condition === ContainerStatus::Running) {
-                    return trans('player-counter::query.table.no_players');
+                if ($server->retrieveStatus()->isOffline()) {
+                    return trans('player-counter::query.table.server_offline');
                 }
 
-                return trans('player-counter::query.table.server_offline');
+                return trans('player-counter::query.table.no_players');
             })
             ->emptyStateDescription(function () {
                 /** @var Server $server */
                 $server = Filament::getTenant();
 
-                /** @var ServerState|ContainerStatus $condition */
-                $condition = $server->condition();
-
-                if ($condition instanceof ContainerStatus && $condition === ContainerStatus::Running) {
-                    return trans('player-counter::query.table.no_players_description');
+                if ($server->retrieveStatus()->isOffline()) {
+                    return null;
                 }
 
-                return null;
+                return trans('player-counter::query.table.no_players_description');
             });
     }
 
@@ -254,6 +248,13 @@ class PlayersPage extends Page implements HasTable
             ->components([
                 EmbeddedTable::make(),
             ]);
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            ServerPlayerWidget::class,
+        ];
     }
 
     private function refreshPage(): void

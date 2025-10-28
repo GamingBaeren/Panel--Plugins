@@ -28,6 +28,13 @@ class GameQuery extends Model
         'query_port_offset' => null,
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (self $gameQuery) {
+            $gameQuery->query_type = mb_strtolower($gameQuery->query_type);
+        });
+    }
+
     public function eggs(): BelongsToMany
     {
         return $this->belongsToMany(Egg::class);
