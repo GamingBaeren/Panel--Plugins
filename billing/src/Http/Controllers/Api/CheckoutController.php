@@ -15,9 +15,7 @@ class CheckoutController extends Controller
 {
     public function __construct(
         private StripeClient $stripeClient
-    ) {
-        parent::__construct();
-    }
+    ) {}
 
     public function success(Request $request): RedirectResponse
     {

@@ -48,7 +48,7 @@ class ProductWidget extends Widget implements HasActions, HasSchemas
                     ]);
 
                     return $this->redirect($order->getCheckoutSession()->url);
-                }, true);
+                });
         }
 
         return $schema

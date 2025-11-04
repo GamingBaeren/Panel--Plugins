@@ -85,7 +85,7 @@ class ProductPrice extends Model
 
     public function formatCost(): string
     {
-        $formatter = new NumberFormatter(user()?->language ?? 'en', NumberFormatter::CURRENCY);
+        $formatter = new NumberFormatter(user()->language ?? 'en', NumberFormatter::CURRENCY);
 
         return $formatter->formatCurrency($this->cost, config('billing.currency'));
     }

@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $record_type
  * @property int $domain_id
  * @property CloudflareDomain $domain
- * @property int server_id
+ * @property int $server_id
  * @property Server $server
  */
 class Subdomain extends Model implements HasLabel
