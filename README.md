@@ -111,6 +111,12 @@ Adds a Tawk.to widget to all panels.
 
 ---
 
+### [Theme Customizer](/theme-customizer) <sup><sub>by Boy132</sub></sup>
+
+Allows to customize the panel font and colors.
+
+---
+
 ### [Tickets](/tickets) <sup><sub>by Boy132</sub></sup>
 
 Allows users to create tickets (per server) and admins to answer them.
