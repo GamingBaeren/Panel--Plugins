@@ -46,7 +46,9 @@ class UploadLogsAction extends Action
                     ->throw()
                     ->json('data');
 
-                $response = Http::asJson()
+                $logs = is_array($logs) ? implode(PHP_EOL, $logs) : $logs;
+
+                $response = Http::asForm()
                     ->timeout(15)
                     ->connectTimeout(5)
                     ->throw()
