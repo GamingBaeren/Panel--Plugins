@@ -10,6 +10,7 @@ class TicketsPluginProvider extends ServiceProvider
     public function register(): void
     {
         Role::registerCustomDefaultPermissions('ticket');
+        Role::registerCustomModelIcon('ticket', 'tabler-ticket');
     }
 
     public function boot(): void {}

@@ -11,6 +11,7 @@ class SubdomainsPluginProvider extends ServiceProvider
     public function register(): void
     {
         Role::registerCustomDefaultPermissions('cloudflare_domain');
+        Role::registerCustomModelIcon('cloudflare_domain', 'tabler-world-www');
     }
 
     public function boot(): void

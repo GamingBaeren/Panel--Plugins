@@ -13,6 +13,7 @@ class PlayerCounterPluginProvider extends ServiceProvider
     public function register(): void
     {
         Role::registerCustomDefaultPermissions('game_query');
+        Role::registerCustomModelIcon('game_query', 'tabler-device-desktop-search');
 
         Console::registerCustomWidgets(ConsoleWidgetPosition::AboveConsole, [ServerPlayerWidget::class]);
     }
