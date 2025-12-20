@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('user_resource_limits', function (Blueprint $table) {
             $table->increments('id');
-            $table->unsignedInteger('user_id');
+            $table->unsignedInteger('user_id')->unique();
             $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
             $table->unsignedInteger('cpu');
             $table->unsignedInteger('memory');
