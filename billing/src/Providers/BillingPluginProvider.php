@@ -4,6 +4,7 @@ namespace Boy132\Billing\Providers;
 
 use App\Models\Role;
 use Boy132\Billing\Console\Commands\CheckOrdersCommand;
+use Boy132\Billing\Services\PayPalService;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Stripe\StripeClient;
@@ -12,13 +13,15 @@ class BillingPluginProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(StripeClient::class, fn () => new StripeClient(config('billing.secret')));
-
-        Role::registerCustomDefaultPermissions('customer');
-        Role::registerCustomModelIcon('customer', 'tabler-user-dollar');
-
-        Role::registerCustomDefaultPermissions('product');
-        Role::registerCustomModelIcon('product', 'tabler-package');
+        // Only bind StripeClient if Stripe is enabled and has a secret
+        $this->app->bind(StripeClient::class, function () {
+            $secret = config('billing.stripe.secret');
+            if (!$secret || !config('billing.stripe.enabled')) {
+                return null;
+            }
+            return new StripeClient($secret);
+        });
+        $this->app->bind(PayPalService::class, fn () => new PayPalService());
     }
 
     public function boot(): void

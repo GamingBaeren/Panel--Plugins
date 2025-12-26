@@ -64,28 +64,37 @@ class ProductPrice extends Model implements HasLabel
     {
         $this->product->sync();
 
-        /** @var StripeClient $stripeClient */
-        $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
+        // Only sync with Stripe if enabled and configured
+        if (!config('billing.stripe.enabled') || !config('billing.stripe.secret')) {
+            return;
+        }
 
-        if (is_null($this->stripe_id)) {
-            $stripePrice = $stripeClient->prices->create([
-                'currency' => config('billing.currency'),
-                'nickname' => $this->name,
-                'product' => $this->product->stripe_id,
-                'unit_amount' => $this->cost * 100, // Stripe needs cent/ penny price
-            ]);
+        try {
+            /** @var StripeClient $stripeClient */
+            $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
 
-            $this->updateQuietly([
-                'stripe_id' => $stripePrice->id,
-            ]);
-        } else {
-            $stripePrice = $stripeClient->prices->retrieve($this->stripe_id);
+            if (is_null($this->stripe_id)) {
+                $stripePrice = $stripeClient->prices->create([
+                    'currency' => config('billing.currency'),
+                    'nickname' => $this->name,
+                    'product' => $this->product->stripe_id,
+                    'unit_amount' => $this->cost * 100, // Stripe needs cent/ penny price
+                ]);
 
-            // You can't update price objects on stripe, so check for changes and recreate the price if needed
-            if ($stripePrice->product !== $this->product->stripe_id || $stripePrice->unit_amount !== $this->cost * 100) {
-                $this->stripe_id = null;
-                $this->sync();
+                $this->updateQuietly([
+                    'stripe_id' => $stripePrice->id,
+                ]);
+            } else {
+                $stripePrice = $stripeClient->prices->retrieve($this->stripe_id);
+
+                // You can't update price objects on stripe, so check for changes and recreate the price if needed
+                if ($stripePrice->product !== $this->product->stripe_id || $stripePrice->unit_amount !== $this->cost * 100) {
+                    $this->stripe_id = null;
+                    $this->sync();
+                }
             }
+        } catch (\Exception $e) {
+            report($e);
         }
     }
 

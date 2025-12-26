@@ -72,11 +72,15 @@ class Product extends Model implements HasLabel
         });
 
         static::deleted(function (self $model) {
-            if (!is_null($model->stripe_id)) {
-                /** @var StripeClient $stripeClient */
-                $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
+            if (!is_null($model->stripe_id) && config('billing.stripe.enabled') && config('billing.stripe.secret')) {
+                try {
+                    /** @var StripeClient $stripeClient */
+                    $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
 
-                $stripeClient->products->delete($model->stripe_id);
+                    $stripeClient->products->delete($model->stripe_id);
+                } catch (\Exception $e) {
+                    report($e);
+                }
             }
         });
     }
@@ -98,23 +102,32 @@ class Product extends Model implements HasLabel
 
     public function sync(): void
     {
+        // Only sync with Stripe if enabled and configured
+        if (!config('billing.stripe.enabled') || !config('billing.stripe.secret')) {
+            return;
+        }
+
         /** @var StripeClient $stripeClient */
         $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
 
-        if (is_null($this->stripe_id)) {
-            $stripeProduct = $stripeClient->products->create([
-                'name' => $this->name,
-                'description' => $this->description,
-            ]);
+        try {
+            if (is_null($this->stripe_id)) {
+                $stripeProduct = $stripeClient->products->create([
+                    'name' => $this->name,
+                    'description' => $this->description,
+                ]);
 
-            $this->updateQuietly([
-                'stripe_id' => $stripeProduct->id,
-            ]);
-        } else {
-            $stripeClient->products->update($this->stripe_id, [
-                'name' => $this->name,
-                'description' => $this->description,
-            ]);
+                $this->updateQuietly([
+                    'stripe_id' => $stripeProduct->id,
+                ]);
+            } else {
+                $stripeClient->products->update($this->stripe_id, [
+                    'name' => $this->name,
+                    'description' => $this->description,
+                ]);
+            }
+        } catch (\Exception $e) {
+            report($e);
         }
     }
 }

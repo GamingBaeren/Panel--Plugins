@@ -31,7 +31,8 @@ class ProductWidget extends Widget implements HasActions, HasSchemas
         $actions = [];
 
         foreach ($this->product->prices as $price) {
-            $actions[] = Action::make(str_slug($price->name))
+            // Ensure a unique action name per price to avoid collisions
+            $actions[] = Action::make('buy_' . $price->id)
                 ->label($price->getLabel())
                 ->action(function () use ($price) {
                     $price->sync();
@@ -45,9 +46,10 @@ class ProductWidget extends Widget implements HasActions, HasSchemas
                     $order = Order::create([
                         'customer_id' => $customer->id,
                         'product_price_id' => $price->id,
+                        'payment_method' => 'stripe', // Default, will be changed on checkout page
                     ]);
 
-                    return $this->redirect($order->getCheckoutSession()->url);
+                    return redirect()->route('billing.checkout.page', $order->id);
                 });
         }
 

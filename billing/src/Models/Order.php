@@ -21,6 +21,9 @@ use Stripe\StripeClient;
  * @property int $id
  * @property ?string $stripe_checkout_id
  * @property ?string $stripe_payment_id
+ * @property ?string $payment_method
+ * @property ?string $paypal_order_id
+ * @property ?string $paypal_payer_id
  * @property OrderStatus $status
  * @property ?Carbon $expires_at
  * @property int $customer_id
@@ -35,6 +38,9 @@ class Order extends Model implements HasLabel
     protected $fillable = [
         'stripe_checkout_id',
         'stripe_payment_id',
+        'payment_method',
+        'paypal_order_id',
+        'paypal_payer_id',
         'status',
         'expires_at',
         'customer_id',
@@ -96,9 +102,13 @@ class Order extends Model implements HasLabel
 
     private function expireCheckoutSession(): void
     {
-        if (!is_null($this->stripe_checkout_id)) {
+        if (!is_null($this->stripe_checkout_id) && config('billing.stripe.enabled') && config('billing.stripe.secret')) {
             /** @var StripeClient $stripeClient */
             $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
+
+            if (!$stripeClient) {
+                return;
+            }
 
             $session = $stripeClient->checkout->sessions->retrieve($this->stripe_checkout_id);
 
@@ -110,10 +120,22 @@ class Order extends Model implements HasLabel
 
     public function getCheckoutSession(): Session
     {
+        if (!config('billing.stripe.enabled') || !config('billing.stripe.secret')) {
+            throw new Exception('Stripe is not enabled or configured');
+        }
+
         /** @var StripeClient $stripeClient */
         $stripeClient = app(StripeClient::class); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
 
+        if (!$stripeClient) {
+            throw new Exception('Stripe client not available');
+        }
+
         if (is_null($this->stripe_checkout_id)) {
+            if (!$this->productPrice?->stripe_id) {
+                throw new Exception('ProductPrice does not have a Stripe price ID. Did you sync the product with Stripe?');
+            }
+
             $session = $stripeClient->checkout->sessions->create([
                 'customer_email' => $this->customer->user->email,
                 'success_url' => route('billing.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}',
@@ -145,7 +167,7 @@ class Order extends Model implements HasLabel
         return $stripeClient->checkout->sessions->retrieve($this->stripe_checkout_id);
     }
 
-    public function activate(?string $stripePaymentId): void
+    public function activate(?string $paymentId = null): void
     {
         $expireDate = match ($this->productPrice->interval_type) {
             PriceInterval::Day => now('UTC')->addDays($this->productPrice->interval_value),
@@ -156,12 +178,19 @@ class Order extends Model implements HasLabel
 
         $this->expireCheckoutSession();
 
-        $this->update([
+        $updateData = [
             'stripe_checkout_id' => null,
-            'stripe_payment_id' => $stripePaymentId,
             'status' => OrderStatus::Active,
             'expires_at' => $expireDate,
-        ]);
+        ];
+
+        if ($this->payment_method === 'stripe') {
+            $updateData['stripe_payment_id'] = $paymentId;
+        } elseif ($this->payment_method === 'paypal') {
+            $updateData['paypal_payer_id'] = $paymentId;
+        }
+
+        $this->update($updateData);
 
         try {
             if ($this->server) {
@@ -200,40 +229,54 @@ class Order extends Model implements HasLabel
 
         $product = $this->productPrice->product;
 
-        $environment = [];
-        foreach ($product->egg->variables as $variable) {
-            $environment[$variable->env_variable] = $variable->default_value;
-        }
+            $environment = [];
+            foreach ($product->egg->variables as $variable) {
+                $environment[$variable->env_variable] = $variable->default_value;
+            }
 
-        $data = [
-            'name' => $this->getLabel() . ' (' . $this->productPrice->product->getLabel() . ')',
-            'owner_id' => $this->customer->user->id,
-            'egg_id' => $product->egg->id,
-            'cpu' => $product->cpu,
-            'memory' => $product->memory,
-            'disk' => $product->disk,
-            'swap' => $product->swap,
-            'io' => 500,
-            'environment' => $environment,
-            'skip_scripts' => false,
-            'start_on_completion' => true,
-            'oom_killer' => false,
-            'database_limit' => $product->database_limit,
-            'allocation_limit' => $product->allocation_limit,
-            'backup_limit' => $product->backup_limit,
-        ];
+            $data = [
+                'name' => $this->getLabel() . ' (' . $this->productPrice->product->getLabel() . ')',
+                'owner_id' => $this->customer->user->id,
+                'egg_id' => $product->egg->id,
+                'cpu' => $product->cpu,
+                'memory' => $product->memory,
+                'disk' => $product->disk,
+                'swap' => $product->swap,
+                'io' => 500,
+                'environment' => $environment,
+                'skip_scripts' => false,
+                'start_on_completion' => true,
+                'oom_killer' => false,
+                'database_limit' => $product->database_limit,
+                'allocation_limit' => $product->allocation_limit,
+                'backup_limit' => $product->backup_limit,
+            ];
 
-        $object = new DeploymentObject();
-        $object->setDedicated(false);
-        $object->setTags($product->tags);
-        $object->setPorts($product->ports);
+            $object = new DeploymentObject();
+            $object->setDedicated(false);
+            $object->setTags($product->tags);
 
-        $server = app(ServerCreationService::class)->handle($data, $object); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
+                // Set ports for allocation - either from product config or system default
+                $ports = [];
+                if (!empty($product->ports)) {
+                    $ports = $product->ports;
+                } else {
+                    $portConfig = config('user-creatable-servers.deployment_ports') ?? '';
+                    $ports = array_filter(explode(',', $portConfig));
+                }
+            
+                // Only set ports if we have any, otherwise let the service find defaults
+                if (!empty($ports)) {
+                    $object->setPorts($ports);
+                }
 
-        $this->update([
-            'server_id' => $server->id,
-        ]);
+                // Create server - service will automatically pick a free allocation
+            $server = app(ServerCreationService::class)->handle($data, $object); // @phpstan-ignore myCustomRules.forbiddenGlobalFunctions
 
-        return $server;
+            $this->update([
+                'server_id' => $server->id,
+            ]);
+
+            return $server;
     }
 }

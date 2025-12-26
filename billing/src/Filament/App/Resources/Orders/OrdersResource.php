@@ -73,29 +73,24 @@ class OrdersResource extends Resource
                     ->color(fn ($state) => $state <= now('UTC') ? 'danger' : null)
                     ->since(),
             ])
-            ->recordActions([
+            ->actions([
                 ViewAction::make()
                     ->hidden(fn (Order $order) => !$order->server)
                     ->url(fn (Order $order) => Console::getUrl(panel: 'server', tenant: $order->server)),
-                Action::make('activate')
-                    ->visible(fn (Order $order) => $order->status === OrderStatus::Pending)
+                Action::make('checkout')
+                    ->label('Checkout')
+                    ->visible(fn (Order $record) => $record->status->value === 'pending')
                     ->color('success')
-                    ->requiresConfirmation()
-                    ->action(fn (Order $order) => redirect($order->getCheckoutSession()->url)),
+                    ->url(function (Order $record) {
+                        return route('billing.checkout.page', $record->id);
+                    }, true),
                 Action::make('cancel')
-                    ->visible(fn (Order $order) => $order->status === OrderStatus::Pending || $order->status === OrderStatus::Active)
+                    ->label('Cancel')
+                    ->visible(fn (Order $order) => $order->status->value === 'pending' || $order->status->value === 'active')
                     ->color('danger')
                     ->requiresConfirmation()
                     ->action(fn (Order $order) => $order->close()),
-                Action::make('renew')
-                    ->visible(fn (Order $order) => $order->status === OrderStatus::Expired)
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->action(fn (Order $order) => redirect($order->getCheckoutSession()->url)),
-            ])
-            ->emptyStateHeading('No Orders')
-            ->emptyStateDescription('')
-            ->emptyStateIcon('tabler-truck-delivery');
+            ]);
     }
 
     public static function getPages(): array
